@@ -1,57 +1,133 @@
-import { useState } from 'react';
-import { AppProvider, useApp } from './store';
-import { ToastProvider } from './toast';
-import Sidebar, { type Tab } from './components/Sidebar';
-import MobileNav from './components/MobileNav';
-import Dashboard from './components/Dashboard';
-import IncidentsFeed from './components/IncidentsFeed';
-import ReportEmergency from './components/ReportEmergency';
-import DonorHub from './components/DonorHub';
-import { Loader2, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { LanguageProvider, useLanguage } from './lib/LanguageContext';
+import { AuthProvider, useAuth } from './lib/AuthContext';
+import { LoginPage } from './components/LoginPage';
+import { Sidebar } from './components/Sidebar';
+import { Dashboard } from './components/Dashboard';
+import { IncidentsFeed } from './components/IncidentsFeed';
+import { ReportEmergency } from './components/ReportEmergency';
+import { DonorHub } from './components/DonorHub';
+import { Incident, DonorSupply, DashboardStats, DistrictData, ResourceData } from './lib/types';
+import {
+  mockIncidents,
+  mockDonorSupplies,
+  mockDashboardStats,
+  mockDistrictData,
+  mockResourceData
+} from './lib/mockData';
 
-function Shell() {
-  const [tab, setTab] = useState<Tab>('dashboard');
-  const { loading, loadError } = useApp();
+function AppContent() {
+  const { user, loading } = useAuth();
+  const [currentPage, setCurrentPage] = useState('dashboard');
+
+  // State for incidents and donor supplies with mock data initialization
+  const [incidents, setIncidents] = useState<Incident[]>(mockIncidents);
+  const [donorSupplies, setDonorSupplies] = useState<DonorSupply[]>(mockDonorSupplies);
+
+  // Stats calculated from current data
+  const stats: DashboardStats = {
+    activeEmergencies: incidents.filter(i => i.status === 'Open' || i.status === 'Dispatching').length,
+    familiesDisplaced: mockDashboardStats.familiesDisplaced,
+    activeVolunteers: mockDashboardStats.activeVolunteers,
+    reliefPacksDistributed: mockDashboardStats.reliefPacksDistributed,
+    reliefPacksTarget: mockDashboardStats.reliefPacksTarget
+  };
+
+  const districtData: DistrictData[] = mockDistrictData;
+  const resourceData: ResourceData[] = mockResourceData;
+
+  // Handle new incident submission
+  const handleNewIncident = (incident: Omit<Incident, 'id' | 'reported_at'>) => {
+    const newIncident: Incident = {
+      ...incident,
+      id: `INC-${Date.now().toString().slice(-8)}`,
+      reported_at: new Date().toISOString()
+    };
+    setIncidents(prev => [newIncident, ...prev]);
+  };
+
+  // Handle new donor supply submission
+  const handleNewSupply = (supply: Omit<DonorSupply, 'id' | 'created_at' | 'matched'>) => {
+    const newSupply: DonorSupply = {
+      ...supply,
+      id: `DON-${Date.now().toString().slice(-8)}`,
+      matched: false,
+      created_at: new Date().toISOString()
+    };
+    setDonorSupplies(prev => [newSupply, ...prev]);
+  };
+
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin mb-4"></div>
+          <p className="text-slate-400">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show login if not authenticated
+  if (!user) {
+    return <LoginPage />;
+  }
+
+  // Render authenticated app
+  const renderPage = () => {
+    switch (currentPage) {
+      case 'dashboard':
+        return (
+          <Dashboard
+            incidents={incidents}
+            stats={stats}
+            districtData={districtData}
+            resourceData={resourceData}
+          />
+        );
+      case 'incidents':
+        return (
+          <IncidentsFeed
+            incidents={incidents}
+            onSelectIncident={(incident) => console.log('Selected:', incident)}
+          />
+        );
+      case 'report':
+        return (
+          <ReportEmergency onSubmit={handleNewIncident} />
+        );
+      case 'donor':
+        return (
+          <DonorHub
+            incidents={incidents}
+            donorSupplies={donorSupplies}
+            onAddSupply={handleNewSupply}
+          />
+        );
+      default:
+        return <Dashboard incidents={incidents} stats={stats} districtData={districtData} resourceData={resourceData} />;
+    }
+  };
 
   return (
-    <div className="min-h-screen grid-bg">
-      <Sidebar active={tab} onNavigate={setTab} />
-      <MobileNav active={tab} onNavigate={setTab} />
-      <main className="md:pl-72 min-h-screen pb-24 md:pb-8">
-        <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8">
-          {loading ? (
-            <div className="flex flex-col items-center justify-center py-32 gap-3">
-              <Loader2 className="h-7 w-7 animate-spin text-slate-500" />
-              <p className="text-sm text-slate-500">Loading live data from command center…</p>
-            </div>
-          ) : (
-            <>
-              {loadError && (
-                <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 animate-fade-in">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-400" />
-                  <p className="text-sm text-amber-200">
-                    Showing cached sample data — live database sync is unavailable{loadError ? ` (${loadError})` : ''}. Entries made now may not persist across refresh until the connection is restored.
-                  </p>
-                </div>
-              )}
-              {tab === 'dashboard' && <Dashboard />}
-              {tab === 'incidents' && <IncidentsFeed />}
-              {tab === 'report' && <ReportEmergency />}
-              {tab === 'donor' && <DonorHub />}
-            </>
-          )}
-        </div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+      <Sidebar currentPage={currentPage} onNavigate={setCurrentPage} />
+      <main className="ml-64 min-h-screen">
+        {renderPage()}
       </main>
     </div>
   );
 }
 
-export default function App() {
+function App() {
   return (
-    <ToastProvider>
-      <AppProvider>
-        <Shell />
-      </AppProvider>
-    </ToastProvider>
+    <LanguageProvider>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </LanguageProvider>
   );
 }
+
+export default App;
